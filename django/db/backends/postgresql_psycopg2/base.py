@@ -18,6 +18,7 @@ from django.utils.encoding import force_str
 from django.utils.safestring import SafeText, SafeBytes
 from django.utils import six
 from django.utils.timezone import utc
+from django.conf import settings
 
 try:
     import psycopg2 as Database
@@ -51,7 +52,10 @@ class CursorWrapper(object):
 
     def execute(self, query, args=None):
         try:
-            return self.cursor.execute(query, args)
+            if args:
+                return self.cursor.execute(query, args)
+            else:
+                return self.cursor.execute(query)
         except Database.IntegrityError as e:
             six.reraise(utils.IntegrityError, utils.IntegrityError(*tuple(e.args)), sys.exc_info()[2])
         except Database.DatabaseError as e:
@@ -93,7 +97,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         'exact': '= %s',
         'iexact': '= UPPER(%s)',
         'contains': 'LIKE %s',
-        'icontains': 'LIKE UPPER(%s)',
+        'icontains': 'ILIKE %s',
         'regex': '~ %s',
         'iregex': '~* %s',
         'gt': '> %s',
@@ -102,8 +106,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         'lte': '<= %s',
         'startswith': 'LIKE %s',
         'endswith': 'LIKE %s',
-        'istartswith': 'LIKE UPPER(%s)',
-        'iendswith': 'LIKE UPPER(%s)',
+        'istartswith': 'ILIKE %s',
+        'iendswith': 'ILIKE %s',
+        'gtenull': ' >= %s OR IS NULL',
     }
 
     def __init__(self, *args, **kwargs):

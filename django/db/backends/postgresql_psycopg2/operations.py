@@ -48,7 +48,7 @@ class DatabaseOperations(BaseDatabaseOperations):
             lookup = "%s::text"
 
         # Use UPPER(x) for case-insensitive lookups; it's faster.
-        if lookup_type in ('iexact', 'icontains', 'istartswith', 'iendswith'):
+        if lookup_type == 'iexact':
             lookup = 'UPPER(%s)' % lookup
 
         return lookup

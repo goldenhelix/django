@@ -645,6 +645,25 @@ class CharField(Field):
         defaults.update(kwargs)
         return super(CharField, self).formfield(**defaults)
 
+class BinaryField(Field):
+    """Sometimes we have fields that need to store a small amount of binary
+    data. This is different then a varchar on postgresql at least because it
+    will not allow fields that are just nul bytes.
+    """
+    def get_internal_type(self):
+        return "BinaryField"
+    def get_prep_value(self, value):
+        if value:
+            if type(value) == str:
+                # Hacky, but need this wrapper of 'str' values
+                import psycopg2
+                return psycopg2.Binary(value)
+            else:
+                return value
+        else:
+            return None
+    
+
 # TODO: Maybe move this into contrib, because it's specialized.
 class CommaSeparatedIntegerField(CharField):
     default_validators = [validators.validate_comma_separated_integer_list]
@@ -1299,3 +1318,4 @@ class URLField(CharField):
         }
         defaults.update(kwargs)
         return super(URLField, self).formfield(**defaults)
+
