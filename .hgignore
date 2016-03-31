@@ -1,0 +1,11 @@
+syntax:glob
+
+*.egg-info
+*.pot
+*.py[co]
+*.pyc
+*~
+__pycache__
+docs/_build/
+tests/coverage_html/
+tests/.coverage
