@@ -184,7 +184,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 conn_params['host'] = settings_dict['HOST']
             if settings_dict['PORT']:
                 conn_params['port'] = settings_dict['PORT']
-            if settings_dict['QUERY_TIMEOUT']:
+            if settings_dict.get('QUERY_TIMEOUT'):
                 conn_params['options'] = '-c statement_timeout=' + settings_dict['QUERY_TIMEOUT']
             self.connection = Database.connect(**conn_params)
             self.connection.set_client_encoding('UTF8')
