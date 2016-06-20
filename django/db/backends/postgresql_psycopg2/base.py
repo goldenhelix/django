@@ -19,6 +19,8 @@ from django.utils.safestring import SafeText, SafeBytes
 from django.utils import six
 from django.utils.timezone import utc
 from django.conf import settings
+import time
+import traceback
 
 try:
     import psycopg2 as Database
@@ -52,6 +54,9 @@ class CursorWrapper(object):
 
     def execute(self, query, args=None):
         try:
+            if '"p_cancerpanels2k' in query and 'COUNT' in query:
+                print 'query: ', query
+                traceback.print_stack()
             if args:
                 return self.cursor.execute(query, args)
             else:
@@ -162,51 +167,54 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         return self._pg_version
     pg_version = property(_get_pg_version)
 
+    def restore_connection(self, settings_dict):
+        if not settings_dict['NAME']:
+            from django.core.exceptions import ImproperlyConfigured
+            raise ImproperlyConfigured(
+                "settings.DATABASES is improperly configured. "
+                 "Please supply the NAME value.")
+        conn_params = {
+            'database': settings_dict['NAME'],
+        }
+        conn_params.update(settings_dict['OPTIONS'])
+        if 'autocommit' in conn_params:
+            del conn_params['autocommit']
+        if settings_dict['USER']:
+            conn_params['user'] = settings_dict['USER']
+        if settings_dict['PASSWORD']:
+            conn_params['password'] = force_str(settings_dict['PASSWORD'])
+        if settings_dict['HOST']:
+            conn_params['host'] = settings_dict['HOST']
+        if settings_dict['PORT']:
+            conn_params['port'] = settings_dict['PORT']
+        if settings_dict.get('QUERY_TIMEOUT'):
+            conn_params['options'] = '-c statement_timeout=' + settings_dict['QUERY_TIMEOUT']
+        self.connection = Database.connect(**conn_params)
+        self.connection.set_client_encoding('UTF8')
+        tz = 'UTC' if settings.USE_TZ else settings_dict.get('TIME_ZONE')
+        if tz:
+            try:
+                get_parameter_status = self.connection.get_parameter_status
+            except AttributeError:
+                # psycopg2 < 2.0.12 doesn't have get_parameter_status
+                conn_tz = None
+            else:
+                conn_tz = get_parameter_status('TimeZone')
+
+            if conn_tz != tz:
+                # Set the time zone in autocommit mode (see #17062)
+                self.connection.set_isolation_level(
+                        psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+                self.connection.cursor().execute(
+                        self.ops.set_time_zone_sql(), [tz])
+        self.connection.set_isolation_level(self.isolation_level)
+        self._get_pg_version()
+        connection_created.send(sender=self.__class__, connection=self)
+
     def _cursor(self):
         settings_dict = self.settings_dict
         if self.connection is None:
-            if not settings_dict['NAME']:
-                from django.core.exceptions import ImproperlyConfigured
-                raise ImproperlyConfigured(
-                    "settings.DATABASES is improperly configured. "
-                    "Please supply the NAME value.")
-            conn_params = {
-                'database': settings_dict['NAME'],
-            }
-            conn_params.update(settings_dict['OPTIONS'])
-            if 'autocommit' in conn_params:
-                del conn_params['autocommit']
-            if settings_dict['USER']:
-                conn_params['user'] = settings_dict['USER']
-            if settings_dict['PASSWORD']:
-                conn_params['password'] = force_str(settings_dict['PASSWORD'])
-            if settings_dict['HOST']:
-                conn_params['host'] = settings_dict['HOST']
-            if settings_dict['PORT']:
-                conn_params['port'] = settings_dict['PORT']
-            if settings_dict.get('QUERY_TIMEOUT'):
-                conn_params['options'] = '-c statement_timeout=' + settings_dict['QUERY_TIMEOUT']
-            self.connection = Database.connect(**conn_params)
-            self.connection.set_client_encoding('UTF8')
-            tz = 'UTC' if settings.USE_TZ else settings_dict.get('TIME_ZONE')
-            if tz:
-                try:
-                    get_parameter_status = self.connection.get_parameter_status
-                except AttributeError:
-                    # psycopg2 < 2.0.12 doesn't have get_parameter_status
-                    conn_tz = None
-                else:
-                    conn_tz = get_parameter_status('TimeZone')
-
-                if conn_tz != tz:
-                    # Set the time zone in autocommit mode (see #17062)
-                    self.connection.set_isolation_level(
-                            psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
-                    self.connection.cursor().execute(
-                            self.ops.set_time_zone_sql(), [tz])
-            self.connection.set_isolation_level(self.isolation_level)
-            self._get_pg_version()
-            connection_created.send(sender=self.__class__, connection=self)
+            self.restore_connection(settings_dict)
         cursor = self.connection.cursor()
         cursor.tzinfo_factory = utc_tzinfo_factory if settings.USE_TZ else None
         return CursorWrapper(cursor)
@@ -247,3 +255,14 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 return self.connection.commit()
             except Database.IntegrityError as e:
                 six.reraise(utils.IntegrityError, utils.IntegrityError(*tuple(e.args)), sys.exc_info()[2])
+
+    def _rollback(self):
+        if self.connection is not None:
+            try:
+                return self.connection.rollback()
+            except:
+                print 'Rollback failed. Restoring connection...'
+                time.sleep(1) # wait for 1 sec so that postgres can finish reset
+                self.restore_connection(self.settings_dict)
+                print 'Connection restored'
+
