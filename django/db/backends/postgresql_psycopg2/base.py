@@ -19,6 +19,7 @@ from django.utils.safestring import SafeText, SafeBytes
 from django.utils import six
 from django.utils.timezone import utc
 from django.conf import settings
+from datetime import datetime
 import time
 import traceback
 
@@ -133,6 +134,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self.introspection = DatabaseIntrospection(self)
         self.validation = BaseDatabaseValidation(self)
         self._pg_version = None
+        self.last_restore = datetime.min
 
     def check_constraints(self, table_names=None):
         """
@@ -262,7 +264,12 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 return self.connection.rollback()
             except:
                 print 'Rollback failed. Restoring connection...'
-                time.sleep(1) # wait for 1 sec so that postgres can finish reset
-                self.restore_connection(self.settings_dict)
-                print 'Connection restored'
+                seconds_since_last_restore = (datetime.now()-self.last_restore).total_seconds()
+                if seconds_since_last_restore<5:
+                    raise Exception('Too many failed connection attempts. Aborting...')
+                else:
+                    time.sleep(1) # wait for 1 sec so that postgres can finish reset
+                    self.restore_connection(self.settings_dict)
+                    self.last_restore = datetime.now()
+                    print 'Connection restored.'
 
