@@ -21,7 +21,6 @@ from django.utils.timezone import utc
 from django.conf import settings
 from datetime import datetime
 import time
-import traceback
 
 try:
     import psycopg2 as Database
@@ -55,9 +54,6 @@ class CursorWrapper(object):
 
     def execute(self, query, args=None):
         try:
-            if '"p_cancerpanels2k' in query and 'COUNT' in query:
-                print 'query: ', query
-                traceback.print_stack()
             if args:
                 return self.cursor.execute(query, args)
             else:
